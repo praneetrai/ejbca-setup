@@ -26,12 +26,14 @@ database_password="very***bad***database***password"
 Change only if you know what you are doing
 
 WILDFLY_VERSION="10.1.0.Final"
-EJBCA_VERSION="6_5.0.5"
-MARIADB_CONNECTOR_VERSION="1.5.8"
+EJBCA_MAJOR_VERSION="ejbca6"
+EJBCA_MINOR_VERSION="ejbca_6_10_0"
+EJBCA_RELEASE="6_10_1_2"
+MARIADB_CONNECTOR_VERSION="2.2.2"
 
 ## Set Up First Certificate/CA
 
-superadmin_cn="SuperAdmin"
+superadmin_cn="SuperAdminDemo"
 ca_name="ManagementCA"
 BASE_DN="O=Example CA,C=DE"
 ca_dn="CN=ManagementCA,${BASE_DN}"
