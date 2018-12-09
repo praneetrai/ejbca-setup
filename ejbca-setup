@@ -2,7 +2,7 @@
 
 ########################################################################################
 #
-#    Copyright 2017 by Christian Felsing <support@felsing.net>
+#    Copyright 2017-2018 by Christian Felsing <support@felsing.net>
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU Lesser General Public License as published by
@@ -42,26 +42,49 @@ ejbca_home=~
 
 httpsserver_hostname="ejbca.example.com"
 database_host="mysql"
-database_name="ejbca"
-database_url="jdbc:mysql://${database_host}:3306/${database_name}?characterEncoding=UTF-8"
-database_driver="org.mariadb.jdbc.Driver"
-database_username="ejbca"
-database_password="very***bad***database***password"
+database_name="ejbcadev"
+database_username="ejbcadev"
+database_password='very***bad***database***password'
+
+# Either postgres or mysql
+#database_type="postgres"
+database_type="mysql"
+
+case $database_type in
+  postgres)
+    database_port="5432"
+    database_url="jdbc:postgresql://${database_host}:${database_port}/${database_name}"
+    database_driver="org.postgresql.Driver"
+    JDBC_CONNECTOR_VERSION="42.2.5"
+    JDBC_DOWNLOAD_URL="https://jdbc.postgresql.org/download/postgresql-${JDBC_CONNECTOR_VERSION}.jar"
+    JDBC_DOWNLOAD_SHA256_URL=""
+  ;;
+  mysql)
+    database_port="3306"
+    database_url="jdbc:mysql://${database_host}:${database_port}/${database_name}?characterEncoding=UTF-8"
+    database_driver="org.mariadb.jdbc.Driver"
+    JDBC_CONNECTOR_VERSION="1.5.8"
+    JDBC_DOWNLOAD_URL="https://downloads.mariadb.com/Connectors/java/connector-java-${JDBC_CONNECTOR_VERSION}/mariadb-java-client-${JDBC_CONNECTOR_VERSION}.jar"
+    JDBC_DOWNLOAD_SHA256_URL="https://downloads.mariadb.com/Connectors/java/connector-java-${JDBC_CONNECTOR_VERSION}/sha256sums.txt"
+  ;;
+  *)
+    echo "unknown database type $database_type - must be either postgres or mysql"
+    failed
+  ;;
+esac
 superadmin_cn="SuperAdminDemo"
 ca_name="Management"
 BASE_DN="O=Example CA,C=DE"
 ca_dn="CN=${ca_name},${BASE_DN}"
 
 WILDFLY_VERSION="10.1.0.Final"
+
 EJBCA_MAJOR_VERSION="ejbca6"
 EJBCA_MINOR_VERSION="ejbca_6_10_0"
 EJBCA_RELEASE="6_10_1_2"
-MARIADB_CONNECTOR_VERSION="2.2.2"
 
 EJBCA_DOWNLOAD_URL="https://downloads.sourceforge.net/project/ejbca/${EJBCA_MAJOR_VERSION}/${EJBCA_MINOR_VERSION}/ejbca_ce_${EJBCA_RELEASE}.zip"
 EJBCA_DOWNLOAD_SHA256_URL="https://downloads.sourceforge.net/project/ejbca/${EJBCA_MAJOR_VERSION}/${EJBCA_MINOR_VERSION}/ejbca_ce_${EJBCA_RELEASE}.zip.SHA-256"
-MARIADB_DOWNLOAD_URL="https://downloads.mariadb.com/Connectors/java/connector-java-${MARIADB_CONNECTOR_VERSION}/mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.jar"
-MARIADB_DOWNLOAD_SHA256_URL="https://downloads.mariadb.com/Connectors/java/connector-java-${MARIADB_CONNECTOR_VERSION}/sha256sums.txt"
 WILDFLY_TAR="wildfly-${WILDFLY_VERSION}.tar.gz"
 WILDFLY_TAR_SHA256="80781609be387045273f974662dadf7f64ad43ee93395871429bc6b7786ec8bc"
 WILDFLY_DIR="wildfly-${WILDFLY_VERSION}"
@@ -71,11 +94,13 @@ WILDFLY_DOWNLOAD_URL="https://download.jboss.org/wildfly/${WILDFLY_VERSION}/${WI
 
 
 doPatch() {
-  if [ $EJBCA_RELEASE == "6_10_1_2" ]; then
-    cd ejbca || exit 1
-    sed -i.bak 's/<basic fetch="EAGER" name="clearPassword"><column name="clearPassword" column-definition="VARCHAR(250) BINARY"\/><\/basic>/<basic fetch="EAGER" name="clearPassword"><column name="clearPassword" column-definition="VARCHAR(1000) BINARY"\/><\/basic>/g' modules/ejbca-entity/resources/orm-ejbca-mysql.xml || exit 1
-    echo "patch for 6_10_1_2 applied"
-    cd ..
+  if [ "$database_type" == "mysql" ]; then
+    if [ $EJBCA_RELEASE == "6_10_1_2" ]; then
+      cd ejbca || exit 1
+      sed -i.bak 's/<basic fetch="EAGER" name="clearPassword"><column name="clearPassword" column-definition="VARCHAR(250) BINARY"\/><\/basic>/<basic fetch="EAGER" name="clearPassword"><column name="clearPassword" column-definition="VARCHAR(1000) BINARY"\/><\/basic>/g' modules/ejbca-entity/resources/orm-ejbca-mysql.xml || exit 1
+      echo "patch for 6_10_1_2 applied"
+      cd ..
+    fi
   fi
 }
 
@@ -95,18 +120,43 @@ httpsserver_password=$(pwgen)
 cmskeystorepass=$(pwgen)
 
 
-init_mysql() {
-  mysql_user=$(grep database.username ejbca-custom/conf/database.properties | awk -F= '{ print $2 }' | grep -v '^$')
-  mysql_pass=$(grep database.password ejbca-custom/conf/database.properties | awk -F= '{ print $2 }' | grep -v '^$')
-  mysql_host=$(grep database.url ejbca-custom/conf/database.properties | awk -F/ '{print $3}' | awk -F: '{print $1}' | grep -v '^$')
- echo "drop database ${database_name};" | mysql --user=$mysql_user --password=$mysql_pass --host=${mysql_host} ${database_name}
- echo "create database ${database_name} default character set = utf8 default collate = utf8_general_ci;" | mysql --user=$mysql_user --password=$mysql_pass --host=${mysql_host} || exit 1
+init_sql() {
+  sql_user=$(grep database.username ejbca-custom/conf/database.properties | awk -F= '{ print $2 }' | grep -v '^$')
+  sql_pass=$(grep database.password ejbca-custom/conf/database.properties | awk -F= '{ print $2 }' | grep -v '^$')
+  sql_host=$(grep database.url ejbca-custom/conf/database.properties | awk -F/ '{print $3}' | awk -F: '{print $1}' | grep -v '^$')
+  case $database_type in
+    postgres)
+SQL=$(cat << EOF
+DO \$\$ DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
+END \$\$;
+EOF
+)
+      echo "$SQL" | PGPASSWORD="${sql_pass}" psql --username=$sql_user --host=${sql_host} ${database_name}
+    ;;
+    mysql)
+      echo "drop database ${database_name};" | mysql --user=$sql_user --password=$sql_pass --host=${sql_host}
+      echo "create database ${database_name} default character set = utf8 default collate = utf8_general_ci;" | mysql --user=$sql_user --password=$sql_pass --host=${sql_host} || exit 1
+    ;;
+  esac
+
 }
 
 
-create_mysql_index() {
+create_sql_index() {
   cd ~ || exit 1
-  cat ejbca/doc/sql-scripts/create-index-ejbca.sql | mysql --host=${database_host} --user=${database_username} --password=${database_password} ${database_name}
+  case $database_type in
+    postgres)
+      cat ejbca/doc/sql-scripts/create-index-ejbca.sql | PGPASSWORD="${sql_pass}" psql --host=${database_host} --username=${database_username} ${database_name}
+    ;;
+    mysql)
+      cat ejbca/doc/sql-scripts/create-index-ejbca.sql | mysql --host=${database_host} --user=${database_username} --password=${database_password} ${database_name}
+    ;;
+  esac
 }
 
 
@@ -280,7 +330,7 @@ ejbca_installer() {
 
   create_config_files
 
-  init_mysql
+  init_sql
 
   if [ ! -d Download ]; then
     mkdir Download
@@ -299,15 +349,17 @@ ejbca_installer() {
   fi
   cd ..
 
-  if [ ! -f Download/mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.jar ]; then
+  if [ ! -f Download/db-java-client-${JDBC_CONNECTOR_VERSION}.jar ]; then
     cd Download
-    curl -o mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.jar -L ${MARIADB_DOWNLOAD_URL}
-    curl -o mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.sha256 -L ${MARIADB_DOWNLOAD_SHA256_URL}
-    sha256sum --check mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.sha256 2>&1| grep mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.jar
-    if [ $? -ne 0 ]; then
-       echo "SHA256 for mariadb-java-client does not match"
-       rm -rf "mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.jar" "mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.sha256"
-       exit 1
+    curl -o db-java-client-${JDBC_CONNECTOR_VERSION}.jar -L ${JDBC_DOWNLOAD_URL}
+    if [ ! -z "$JDBC_DOWNLOAD_SHA256_URL" ]; then
+      curl -o db-java-client-${JDBC_CONNECTOR_VERSION}.sha256 -L ${JDBC_DOWNLOAD_SHA256_URL}
+      sha256sum --check db-java-client-${JDBC_CONNECTOR_VERSION}.sha256 2>&1| grep db-java-client-${JDBC_CONNECTOR_VERSION}.jar
+      if [ $? -ne 0 ]; then
+         echo "SHA256 for db-java-client does not match"
+         rm -rf "db-java-client-${JDBC_CONNECTOR_VERSION}.jar" "db-java-client-${JDBC_CONNECTOR_VERSION}.sha256"
+         exit 1
+      fi
     fi
     cd ..
   fi
@@ -324,7 +376,7 @@ ejbca_installer() {
   fi
   ln -s "${WILDFLY_DIR}" wildfly
   
-  cp "Download/mariadb-java-client-${MARIADB_CONNECTOR_VERSION}.jar" "wildfly/standalone/deployments/mariadb-java-client.jar" || exit 1
+  cp "Download/db-java-client-${JDBC_CONNECTOR_VERSION}.jar" "wildfly/standalone/deployments/db-java-client.jar" || exit 1
   
   create_environment
   start_wildfly
@@ -336,7 +388,14 @@ ejbca_installer() {
   wildfly_check || exit 1
   
   # Add datasource
-  wildfly_exec "data-source add --name=ejbcads --driver-name=\"mariadb-java-client.jar\" --connection-url=\"jdbc:mysql://${mysql_host}:3306/${database_name}\" --jndi-name=\"java:/EjbcaDS\" --use-ccm=true --driver-class=\"org.mariadb.jdbc.Driver\" --user-name=\"${mysql_user}\" --password=\"${mysql_pass}\" --validate-on-match=true --background-validation=false --prepared-statements-cache-size=50 --share-prepared-statements=true --min-pool-size=5 --max-pool-size=150 --pool-prefill=true --transaction-isolation=TRANSACTION_READ_COMMITTED --check-valid-connection-sql=\"select 1;\""
+  case $database_type in
+    postgres)
+      wildfly_exec "data-source add --name=ejbcads --driver-name=\"db-java-client.jar\" --connection-url=\"jdbc:postgresql://${sql_host}:${database_port}/${database_name}\" --jndi-name=\"java:/EjbcaDS\" --use-ccm=true --driver-class=\"org.postgresql.Driver\" --user-name=\"${sql_user}\" --password=\"${sql_pass}\" --validate-on-match=true --background-validation=false --prepared-statements-cache-size=50 --share-prepared-statements=true --min-pool-size=5 --max-pool-size=150 --pool-prefill=true --transaction-isolation=TRANSACTION_READ_COMMITTED --check-valid-connection-sql=\"select 1;\""
+    ;;
+    mysql)
+      wildfly_exec "data-source add --name=ejbcads --driver-name=\"db-java-client.jar\" --connection-url=\"jdbc:mysql://${sql_host}:${database_port}/${database_name}\" --jndi-name=\"java:/EjbcaDS\" --use-ccm=true --driver-class=\"org.mariadb.jdbc.Driver\" --user-name=\"${sql_user}\" --password=\"${sql_pass}\" --validate-on-match=true --background-validation=false --prepared-statements-cache-size=50 --share-prepared-statements=true --min-pool-size=5 --max-pool-size=150 --pool-prefill=true --transaction-isolation=TRANSACTION_READ_COMMITTED --check-valid-connection-sql=\"select 1;\""
+    ;;
+  esac
   wildfly_exec ":reload"
   
   # Configure WildFly Remoting
@@ -382,7 +441,7 @@ ejbca_installer() {
   #wildfly_check 240
 
   echo "creating SQL index"
-  create_mysql_index
+  create_sql_index
 
   echo "set up Wildfly https connectors"
   wildfly_setup_https
@@ -741,7 +800,7 @@ cat <<EOF > ejbca-custom/conf/database.properties
 # See the document doc/howto/HOWTO-database.txt for database specifics and tips and tricks.
 # (Note that the names below are fixed for the database type, it is not the name of your database instance.)
 # Default: h2
-database.name=mysql
+database.name=${database_type}
 
 # Database connection URL.
 # This is the URL used to connect to the database, used to configure a new datasource in JBoss.
@@ -1371,10 +1430,28 @@ fi
 PKG_INSTALL=""
 if [ -f /etc/redhat-release ]; then
   echo "found RedHat/CentOS"
-  PKG_INSTALL="yum install tar unzip java-1.8.0-openjdk-devel ant psmisc mariadb bc patch"
+  PKG_INSTALL="yum install tar unzip java-1.8.0-openjdk-devel ant psmisc bc patch"
+  case $database_type in
+    postgres)
+      PKG_INSTALL="$PKG_INSTALL postgresql"
+    ;;
+    mysql)
+      PKG_INSTALL="$PKG_INSTALL mariadb"
+    ;;
+  esac
+
 else if [ -f /etc/debian_version ]; then
   echo "found Debian/Ubuntu"
-  PKG_INSTALL="apt install unzip openjdk-8-jdk-headless ant ant-optional psmisc mariadb-client bc patch curl"
+  PKG_INSTALL="apt install unzip openjdk-8-jdk-headless ant ant-optional psmisc bc patch curl"
+  case $database_type in
+    postgres)
+      PKG_INSTALL="$PKG_INSTALL postgresql-client"
+    ;;
+    mysql)
+      PKG_INSTALL="$PKG_INSTALL mariadb-client"
+    ;;
+  esac
+
   else
     echo "Unknown platform, your milage may vary"
   fi

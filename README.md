@@ -16,10 +16,11 @@ Set your hostname (visible in Internet), database etc.
     httpsserver_hostname="ejbca.example.com"
     database_host="mysql"
     database_name="ejbca"
-    database_url="jdbc:mysql://${database_host}:3306/${database_name}?characterEncoding=UTF-8"
-    database_driver="org.mariadb.jdbc.Driver"
     database_username="ejbca"
     database_password="very***bad***database***password"
+
+Double check these parameters. Really *all* parameters must
+match your database, otherwise EJBCA will not run.
 
 ## Optional Settings
 
@@ -29,7 +30,6 @@ Change only if you know what you are doing
     EJBCA_MAJOR_VERSION="ejbca6"
     EJBCA_MINOR_VERSION="ejbca_6_10_0"
     EJBCA_RELEASE="6_10_1_2"
-    MARIADB_CONNECTOR_VERSION="2.2.2"
 
 ## Set Up First Certificate/CA
 
