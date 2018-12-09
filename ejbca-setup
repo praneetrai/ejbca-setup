@@ -468,6 +468,7 @@ are_you_sure() {
 
 
 init_installer() {
+  umask 077
   echo "This will destroy your complete EJBCA installation"
   echo "Do you want this?"
   select yn in "Yes" "No"; do
