@@ -249,7 +249,7 @@ ejbca_get_release() {
   if [ ! -f ejbca_ce_${EJBCA_RELEASE}.zip ]; then
     curl -o ejbca_ce_${EJBCA_RELEASE}.zip -L "${EJBCA_DOWNLOAD_URL}"
     curl -o ejbca_ce_${EJBCA_RELEASE}.zip.SHA256 -L "${EJBCA_DOWNLOAD_SHA256_URL}"
-    sha256sum --check ejbca_ce_6_5.0.5.zip.SHA256
+    sha256sum --check ejbca_ce_${EJBCA_RELEASE}.zip.SHA256
     if [ $? -ne 0 ]; then
        echo "SHA256 for EJBCA does not match"
        rm -rf "ejbca_ce_${EJBCA_RELEASE}.zip" "ejbca_ce_${EJBCA_RELEASE}.zip.SHA256"
