@@ -35,7 +35,7 @@
 ########################################################################################
 # Configurables
 
-memsize=2048n MBytes
+memsize=2048 MBytes
 ejbca_user=praneet
 ejbca_group=$(id -g -n $ejbca_user)
 ejbca_home=~
